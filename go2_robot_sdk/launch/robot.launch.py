@@ -138,7 +138,8 @@ def generate_launch_description():
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.5
+                    'max_height': 0.1,
+                    'range_min': 0.01
                 }],
                 output='screen',
             ),
@@ -178,7 +179,8 @@ def generate_launch_description():
                     ],
                     parameters=[{
                         'target_frame': f'robot{i}/base_link',
-                        'max_height': 0.1
+                        'max_height': 0.1,
+                        'range_min': 0.01
                     }],
                     output='screen',
                 ),
@@ -226,9 +228,9 @@ def generate_launch_description():
             ],
         ),
 
-        IncludeLaunchDescription(
-            FrontendLaunchDescriptionSource(foxglove_launch)
-        ),
+        #IncludeLaunchDescription(
+        #    FrontendLaunchDescriptionSource(foxglove_launch)
+        #),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([

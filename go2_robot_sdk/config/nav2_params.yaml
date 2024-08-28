@@ -185,12 +185,15 @@ local_costmap:
       publish_frequency: 1.0
       global_frame: odom
       robot_base_frame: base_link
+      track_unknown_space: False
+      trinary_costmap: False
       use_sim_time: False
       rolling_window: true
       width: 6
       height: 6
       resolution: 0.05
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
+      footprint_padding: 0.1
       plugins: ["static_layer", "voxel_layer", "inflation_layer"]
 
       static_layer:
@@ -216,7 +219,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 1.0
-        inflation_radius: 0.1
+        inflation_radius: 1.2
 
 global_costmap:
   global_costmap:
@@ -226,14 +229,16 @@ global_costmap:
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: False
+      trinary_costmap: False
       resolution: 0.05
-      track_unknown_space: False
+      track_unknown_space: True
       static_map: True
       width: 500
       height: 500
-      origin_x: -250.0 
+      origin_x: -250.0
       origin_y: -250.0
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
+      footprint_padding: 0.1
       plugins: ["static_layer", "voxel_layer", "inflation_layer"]
 
       static_layer:
@@ -259,7 +264,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 1.0
-        inflation_radius: 0.1
+        inflation_radius: 1.2
 
 map_server:
   ros__parameters:
@@ -283,7 +288,7 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.5
+      tolerance: 1.0
       use_astar: false
       allow_unknown: true
 
@@ -316,7 +321,7 @@ behavior_server:
     global_frame: odom
     robot_base_frame: base_link
     transform_tolerance: 0.1
-    use_sim_time: true
+    use_sim_time: false
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
