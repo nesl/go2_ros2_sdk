@@ -24,23 +24,37 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.conditions import UnlessCondition
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import FrontendLaunchDescriptionSource, PythonLaunchDescriptionSource
+from launch.actions import EmitEvent
+from launch.actions import LogInfo
+from launch.actions import RegisterEventHandler
+from launch_ros.actions import LifecycleNode
+from launch_ros.events.lifecycle import ChangeState
+from launch_ros.event_handlers import OnStateTransition
+import launch
+import lifecycle_msgs.msg
+
 
 def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-    no_rviz2 = LaunchConfiguration('no_rviz2', default='false')
+    with_rviz2 = LaunchConfiguration('rviz2', default='true')
+    with_nav2 = LaunchConfiguration('nav2', default='true')
+    with_slam = LaunchConfiguration('slam', default='true')
+    with_foxglove = LaunchConfiguration('foxglove', default='true')
+    with_joystick = LaunchConfiguration('joystick', default='true')
+    with_teleop = LaunchConfiguration('teleop', default='true')
 
     robot_token = os.getenv('ROBOT_TOKEN', '') # how does this work for multiple robots?
     robot_ip = os.getenv('ROBOT_IP', '')
     robot_ip_lst = robot_ip.replace(" ", "").split(",")
     print("IP list:", robot_ip_lst)
 
-    conn_mode = "single" if len(robot_ip_lst) == 1 else "multi"
+    conn_mode = "multi" #"single" if len(robot_ip_lst) == 1 else "multi"
 
     # these are debug only
     map_name = os.getenv('MAP_NAME', '3d_map')
@@ -74,6 +88,11 @@ def generate_launch_description():
     joy_params = os.path.join(
         get_package_share_directory('go2_robot_sdk'),
         'config', 'joystick.yaml'
+    )
+
+    coverage_params = os.path.join(
+        get_package_share_directory('go2_robot_sdk'),
+        'config', 'coverage.yaml'
     )
 
     default_config_topics = os.path.join(
@@ -121,14 +140,6 @@ def generate_launch_description():
         )
         urdf_launch_nodes.append(
             Node(
-                package='ros2_go2_video',
-                executable='ros2_go2_video',
-                parameters=[{'robot_ip': robot_ip_lst[0],
-                             'robot_token': robot_token}],
-            ),
-        )
-        urdf_launch_nodes.append(
-            Node(
                 package='pointcloud_to_laserscan',
                 executable='pointcloud_to_laserscan_node',
                 name='pointcloud_to_laserscan',
@@ -138,8 +149,7 @@ def generate_launch_description():
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.1,
-                    'range_min': 0.01
+                    'max_height': 0.5
                 }],
                 output='screen',
             ),
@@ -162,66 +172,60 @@ def generate_launch_description():
             )
             urdf_launch_nodes.append(
                 Node(
-                    package='ros2_go2_video',
-                    executable='ros2_go2_video',
-                    parameters=[{'robot_ip': robot_ip_lst[i],
-                                 'robot_token': robot_token}],
-                ),
-            )
-            urdf_launch_nodes.append(
-                Node(
                     package='pointcloud_to_laserscan',
                     executable='pointcloud_to_laserscan_node',
                     name='pointcloud_to_laserscan',
                     remappings=[
                         ('cloud_in', f'robot{i}/point_cloud2'),
-                        ('scan', f'robot{i}/scan'),
+                        ('scan', 'scan'),
                     ],
                     parameters=[{
                         'target_frame': f'robot{i}/base_link',
-                        'max_height': 0.1,
-                        'range_min': 0.01
+                        'max_height': 0.1
                     }],
                     output='screen',
                 ),
             )
 
-    return LaunchDescription([
+    ld = LaunchDescription([
 
         *urdf_launch_nodes,
-        Node(
-            package='go2_robot_sdk',
-            executable='go2_driver_node',
-            parameters=[{'robot_ip': robot_ip, 'token': robot_token, "conn_type": conn_type}],
-        ),
-        Node(
-            package='go2_robot_sdk',
-            executable='lidar_to_pointcloud',
-            parameters=[{'robot_ip_lst': robot_ip_lst, 'map_name': map_name, 'map_save': save_map}],
-        ),
+        #Node(
+        #    package='go2_robot_sdk',
+        #    executable='go2_driver_node',
+        #    parameters=[{'robot_ip': robot_ip, 'token': robot_token, "conn_type": conn_type}],
+        #),
+        #Node(
+        #    package='go2_robot_sdk',
+        #    executable='lidar_to_pointcloud',
+        #    parameters=[{'robot_ip_lst': robot_ip_lst, 'map_name': map_name, 'map_save': save_map}],
+        #),
         Node(
             package='rviz2',
             namespace='',
             executable='rviz2',
-            condition=UnlessCondition(no_rviz2),
+            condition=IfCondition(with_rviz2),
             name='rviz2',
             arguments=['-d' + os.path.join(get_package_share_directory('go2_robot_sdk'), 'config', rviz_config)]
         ),
         Node(
             package='joy',
             executable='joy_node',
+            condition=IfCondition(with_joystick),
             parameters=[joy_params]
         ),
         Node(
             package='teleop_twist_joy',
             executable='teleop_node',
             name='teleop_node',
+            condition=IfCondition(with_joystick),
             parameters=[default_config_topics],
         ),
         Node(
             package='twist_mux',
             executable='twist_mux',
             output='screen',
+            condition=IfCondition(with_teleop),
             parameters=[
                 {'use_sim_time': use_sim_time},
                 default_config_topics
@@ -229,7 +233,8 @@ def generate_launch_description():
         ),
 
         #IncludeLaunchDescription(
-        #    FrontendLaunchDescriptionSource(foxglove_launch)
+        #    FrontendLaunchDescriptionSource(foxglove_launch),
+        #    condition=IfCondition(with_foxglove),
         #),
 
         IncludeLaunchDescription(
@@ -237,20 +242,85 @@ def generate_launch_description():
                 os.path.join(get_package_share_directory(
                     'slam_toolbox'), 'launch', 'online_async_launch.py')
             ]),
+            condition=IfCondition(with_slam),
             launch_arguments={
-                'params_file': slam_toolbox_config,
+                'slam_params_file': slam_toolbox_config,
                 'use_sim_time': use_sim_time,
             }.items(),
         ),
 
+        
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 os.path.join(get_package_share_directory(
                     'nav2_bringup'), 'launch', 'navigation_launch.py')
             ]),
+            condition=IfCondition(with_nav2),
             launch_arguments={
                 'params_file': nav2_config,
                 'use_sim_time': use_sim_time,
             }.items(),
         ),
+        
     ])
+
+    coverage_node = LifecycleNode(
+        package='opennav_coverage',
+        executable='opennav_coverage',
+        name='coverage_server',
+        namespace="",
+        parameters=[coverage_params],
+    )
+
+    
+    # Make the ZED node take the 'configure' transition
+    coverage_configure_trans_event = EmitEvent(
+        event=ChangeState(
+            lifecycle_node_matcher = launch.events.matches_action(coverage_node),
+            transition_id = lifecycle_msgs.msg.Transition.TRANSITION_CONFIGURE,
+        )
+    )
+
+    # Make the ZED node take the 'activate' transition
+    coverage_activate_trans_event = EmitEvent(
+        event = ChangeState(
+            lifecycle_node_matcher = launch.events.matches_action(coverage_node),
+            transition_id = lifecycle_msgs.msg.Transition.TRANSITION_ACTIVATE,
+         )
+    )
+
+    # When the ZED node reaches the 'inactive' state, make it take the 'activate' transition and start the Robot State Publisher
+    coverage_inactive_state_handler = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node = coverage_node,
+            goal_state = 'inactive',
+            entities = [
+                # Log
+                LogInfo( msg = "'ZED' reached the 'INACTIVE' state, start the 'Robot State Publisher' node and 'activating'." ),
+                # Robot State Publisher
+                # Change State event ( inactive -> active )
+                coverage_activate_trans_event,
+            ],
+        )
+    )
+
+    # When the ZED node reaches the 'active' state, log a message.
+    coverage_active_state_handler = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node = coverage_node,
+            goal_state = 'active',
+            entities = [
+                # Log
+                LogInfo( msg = "'ZED' reached the 'ACTIVE' state" ),
+            ],
+        )
+    )
+
+    ld.add_action(coverage_inactive_state_handler)
+    ld.add_action(coverage_active_state_handler)
+    ld.add_action(coverage_configure_trans_event)
+    
+    ld.add_action(coverage_node)
+
+    return ld
+

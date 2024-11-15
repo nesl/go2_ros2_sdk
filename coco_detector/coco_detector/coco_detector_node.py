@@ -53,7 +53,7 @@ class CocoDetectorNode(Node):
         self.device = self.get_parameter('device').get_parameter_value().string_value
         self.detection_threshold = \
             self.get_parameter('detection_threshold').get_parameter_value().double_value
-            
+        self.cam = []   
         '''    
         self.subscription = self.create_subscription(
             Image,
@@ -89,7 +89,14 @@ class CocoDetectorNode(Node):
         
         self.get_logger().info("Node has started.")
         
-        camera_info_msg = self.yaml_to_CameraInfo("/root/ost.yaml")
+        self.create_subscription(
+            CameraInfo,
+            "/robot0/camera_info",
+            self.camera_info_callback,
+            qos_profile)
+
+
+        #camera_info_msg = self.yaml_to_CameraInfo("/root/ost.yaml")
         
         """
         imageR = message_filters.Subscriber(self, Image, "/go2_camera/color/image")
@@ -101,21 +108,28 @@ class CocoDetectorNode(Node):
         self.pointcloudR = []
         self.create_subscription(
             Image,
-            "/go2_camera/color/image",
+            "/robot0/front_cam/rgb",
             self.fusion_callback,
             qos_profile)
         self.create_subscription(
             PointCloud2,
-            "/point_cloud2",
+            "/robot0/point_cloud2",
             self.point_callback,
             qos_profile)
         
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.cam = image_geometry.PinholeCameraModel()
-        self.cam.fromCameraInfo(camera_info_msg)
         
         self.marker_publisher = self.create_publisher(MarkerArray, "visualization_marker_array", 10)
+
+    def camera_info_callback(self, msg):
+
+        camera_info_msg = msg        
+
+        if not self.cam:
+            self.cam = image_geometry.PinholeCameraModel()
+            self.cam.fromCameraInfo(camera_info_msg)
+        
 
     def mobilenet_to_ros2(self, detection, header):
         """Converts a Detection tuple(label, bbox, score) to a ROS2 Detection2D message."""
@@ -258,26 +272,33 @@ class CocoDetectorNode(Node):
         
     def closest_node(self, node, nodes):
         nodes = np.asarray(nodes)
-        deltas = nodes - node
-        dist_2 = np.einsum('ij,ij->i', deltas, deltas)
-        return np.argpartition(dist_2, 4)[:4]
+
+        try:
+            deltas = nodes - node
+            dist_2 = np.einsum('ij,ij->i', deltas, deltas)
+
+        
+            np.argpartition(dist_2, min(dist_2.size-1,4))[:4]
+        except:
+            pdb.set_trace()
+
+        return np.argpartition(dist_2, min(dist_2.size-1,4))[:4]
                         
     def fusion_callback(self, imageR):
         #pdb.set_trace()
         
         time_start = time.time()
-        if not self.pointcloudR:
+        if not self.pointcloudR or not self.cam:
             return
-        
         try:
             t = self.tf_buffer.lookup_transform(
-                "front_camera",
+                "robot0/front_camera",
                 "odom",
                 rclpy.time.Time())
                 
             toWorld = self.tf_buffer.lookup_transform(
                 "map",
-                "front_camera",
+                "robot0/front_camera",
                 rclpy.time.Time())
         except TransformException as ex:
             self.get_logger().info(
@@ -383,6 +404,8 @@ class CocoDetectorNode(Node):
         points_to_world = []
         for det in detection_array.detections:
             det_point = [int(det.bbox.center.position.x), int(det.bbox.center.position.y+det.bbox.size_y/2)]
+            if not projected_pixels:
+                break
             point_num = self.closest_node(det_point, projected_pixels)
             distance = float(np.mean(np.array(projected_points)[point_num]))
             #distance_vec = self.cam.projectPixelTo3dRay([int(det.bbox.center.position.x), int(det.bbox.center.position.y-det.bbox.size_y/2)])
